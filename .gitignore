@@ -1,0 +1,8 @@
+.DS_Store
+__pycache__/
+*.pyc
+pc/data/
+firmware/tests/test_core
+build/
+*.mov
+*.mp4

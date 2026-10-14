@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 880" width="1200" height="880" font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333"/>
+    </marker>
+    <marker id="arrRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#c0392b"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="880" fill="#ffffff"/>
+
+  <text x="600" y="28" text-anchor="middle" font-size="20" font-weight="bold" fill="#111">ShipGuard Network Architecture (Simplified IoT Architecture): Regional Warehouse → Store</text>
+
+  <!-- Layer bands -->
+  <rect x="10" y="45" width="1060" height="110" fill="#eef4fb" stroke="#9db7d5"/>
+  <rect x="10" y="165" width="1060" height="135" fill="#f1f1f8" stroke="#aaa9cc"/>
+  <rect x="10" y="310" width="1060" height="125" fill="#fdf5e8" stroke="#dcc08f"/>
+  <rect x="10" y="445" width="1060" height="95" fill="#eef8f0" stroke="#9cc9a5"/>
+  <rect x="10" y="550" width="1060" height="110" fill="#fbeeee" stroke="#d9a3a3"/>
+
+  <!-- Layer labels -->
+  <g font-size="14" font-weight="bold" fill="#222">
+    <text x="22" y="92">3. Applications</text>
+    <text x="22" y="110">&amp; Analytics</text>
+    <text x="22" y="220">2-3. Network transport</text>
+    <text x="22" y="238">2-4. Network</text>
+    <text x="22" y="256">management</text>
+    <text x="22" y="365">2-2. Gateways</text>
+    <text x="22" y="383">&amp; backhaul</text>
+    <text x="22" y="490">2-1. Access</text>
+    <text x="22" y="508">network</text>
+    <text x="22" y="600">1. Things</text>
+    <text x="22" y="618">(smart objects)</text>
+  </g>
+
+  <!-- Apps -->
+  <g font-size="13" fill="#111">
+    <rect x="210" y="60" width="270" height="80" rx="8" fill="#fff" stroke="#4a78a8"/>
+    <text x="345" y="88" text-anchor="middle" font-weight="bold">Driver app alerts</text>
+    <text x="345" y="108" text-anchor="middle">L2: check at next safe stop</text>
+    <text x="345" y="126" text-anchor="middle">L3: stop safely, then check</text>
+
+    <rect x="500" y="60" width="270" height="80" rx="8" fill="#fff" stroke="#4a78a8"/>
+    <text x="635" y="88" text-anchor="middle" font-weight="bold">Store / customer view</text>
+    <text x="635" y="108" text-anchor="middle">delivery condition summary</text>
+    <text x="635" y="126" text-anchor="middle">delay / anomaly status</text>
+
+    <rect x="790" y="60" width="270" height="80" rx="8" fill="#fff" stroke="#4a78a8"/>
+    <text x="925" y="88" text-anchor="middle" font-weight="bold">Shipper dashboard</text>
+    <text x="925" y="108" text-anchor="middle">risk history, ACK records</text>
+    <text x="925" y="126" text-anchor="middle">route statistics, reports</text>
+  </g>
+
+  <!-- Cloud -->
+  <g font-size="13" fill="#111">
+    <rect x="210" y="180" width="270" height="105" rx="8" fill="#fff" stroke="#6b68a8"/>
+    <text x="345" y="208" text-anchor="middle" font-weight="bold">MQTT broker</text>
+    <text x="345" y="228" text-anchor="middle">TLS, QoS 1</text>
+    <text x="345" y="248" text-anchor="middle">role-based topics</text>
+    <text x="345" y="268" text-anchor="middle">(driver / store / shipper)</text>
+
+    <rect x="500" y="180" width="270" height="105" rx="8" fill="#fff" stroke="#6b68a8"/>
+    <text x="635" y="208" text-anchor="middle" font-weight="bold">Device registry + DB</text>
+    <text x="635" y="228" text-anchor="middle">node ID ↔ shipment ID map</text>
+    <text x="635" y="248" text-anchor="middle">profiles, thresholds, OTA</text>
+    <text x="635" y="268" text-anchor="middle">SIM &amp; battery health</text>
+
+    <rect x="790" y="180" width="270" height="105" rx="8" fill="#fff" stroke="#6b68a8"/>
+    <text x="925" y="208" text-anchor="middle" font-weight="bold">CoAP endpoint</text>
+    <text x="925" y="228" text-anchor="middle">DTLS over UDP</text>
+    <text x="925" y="248" text-anchor="middle">bridged into the same</text>
+    <text x="925" y="268" text-anchor="middle">MQTT topics</text>
+  </g>
+  <line x1="790" y1="232" x2="772" y2="232" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="500" y1="232" x2="482" y2="232" stroke="#333" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Gateways & backhaul -->
+  <g font-size="13" fill="#111">
+    <rect x="210" y="322" width="430" height="100" rx="8" fill="#fff" stroke="#b8862b"/>
+    <text x="425" y="348" text-anchor="middle" font-weight="bold">Driver smartphone app (gateway + fog)</text>
+    <text x="425" y="368" text-anchor="middle">BLE scan → MQTT protocol conversion</text>
+    <text x="425" y="388" text-anchor="middle">instant driver alert, de-duplication, store-and-forward</text>
+    <text x="425" y="408" text-anchor="middle">backhaul: phone's own LTE/5G → Internet (IP)</text>
+
+    <rect x="680" y="322" width="380" height="100" rx="8" fill="#fff" stroke="#b8862b"/>
+    <text x="870" y="348" text-anchor="middle" font-weight="bold">Carrier LTE-M network</text>
+    <text x="870" y="368" text-anchor="middle">existing urban cell towers</text>
+    <text x="870" y="388" text-anchor="middle">(no new gateways to install)</text>
+    <text x="870" y="408" text-anchor="middle">backhaul: carrier core → Internet (IP)</text>
+  </g>
+
+  <!-- Access -->
+  <g font-size="13" fill="#111">
+    <rect x="210" y="455" width="430" height="75" rx="8" fill="#fff" stroke="#3f8f52"/>
+    <text x="425" y="480" text-anchor="middle" font-weight="bold">BLE 5 — connectionless advertising</text>
+    <text x="425" y="500" text-anchor="middle">~5–15 m inside a metal van, adv. channels 37/38/39</text>
+    <text x="425" y="518" text-anchor="middle">short connection only for commands (QR-based OOB pairing)</text>
+
+    <rect x="680" y="455" width="380" height="75" rx="8" fill="#fff" stroke="#3f8f52"/>
+    <text x="870" y="480" text-anchor="middle" font-weight="bold">LTE-M (Cat-M1)</text>
+    <text x="870" y="500" text-anchor="middle">PSM / eDRX, handover while moving</text>
+    <text x="870" y="518" text-anchor="middle">coverage enhancement for deep indoor</text>
+  </g>
+
+  <!-- Things -->
+  <g font-size="13" fill="#111">
+    <rect x="210" y="562" width="430" height="88" rx="8" fill="#fff" stroke="#b04a4a"/>
+    <text x="425" y="588" text-anchor="middle" font-weight="bold">ShipGuard nodes in a delivery van (~25 / van)</text>
+    <text x="425" y="608" text-anchor="middle">edge: risk score, alert level, local buzzer/LED/OLED</text>
+    <text x="425" y="628" text-anchor="middle">button ACK, 60 s summaries + instant L2/L3 events</text>
+
+    <rect x="680" y="562" width="380" height="88" rx="8" fill="#fff" stroke="#b04a4a"/>
+    <text x="870" y="588" text-anchor="middle" font-weight="bold">ShipGuard nodes in the warehouse</text>
+    <text x="870" y="608" text-anchor="middle">waiting for dispatch / after return</text>
+    <text x="870" y="628" text-anchor="middle">15 min summaries, events on change</text>
+  </g>
+
+  <!-- Vertical flows (uplink up, downlink down) -->
+  <g stroke="#333" stroke-width="2" fill="none">
+    <line x1="425" y1="560" x2="425" y2="532" marker-start="url(#arr)" marker-end="url(#arr)"/>
+    <line x1="425" y1="453" x2="425" y2="424" marker-start="url(#arr)" marker-end="url(#arr)"/>
+    <line x1="345" y1="320" x2="345" y2="287" marker-start="url(#arr)" marker-end="url(#arr)"/>
+    <line x1="345" y1="178" x2="345" y2="142" marker-start="url(#arr)" marker-end="url(#arr)"/>
+    <line x1="870" y1="560" x2="870" y2="532" marker-start="url(#arr)" marker-end="url(#arr)"/>
+    <line x1="870" y1="453" x2="870" y2="424" marker-start="url(#arr)" marker-end="url(#arr)"/>
+    <line x1="925" y1="320" x2="925" y2="287" marker-start="url(#arr)" marker-end="url(#arr)"/>
+    <line x1="635" y1="178" x2="635" y2="142" marker-start="url(#arr)" marker-end="url(#arr)"/>
+    <line x1="925" y1="178" x2="925" y2="142" marker-start="url(#arr)" marker-end="url(#arr)"/>
+  </g>
+  <g font-size="11" fill="#333">
+    <text x="352" y="306">MQTT/TLS</text>
+    <text x="932" y="306">CoAP/DTLS</text>
+  </g>
+
+  <!-- Fallback path -->
+  <path d="M640,585 C660,585 660,505 678,505" stroke="#c0392b" stroke-width="2.2" stroke-dasharray="7,5" fill="none" marker-end="url(#arrRed)"/>
+  <text x="648" y="548" font-size="11" fill="#c0392b" transform="rotate(-90 648 548)">fallback</text>
+
+  <!-- Compute tiers -->
+  <g font-size="13" font-weight="bold" text-anchor="middle">
+    <rect x="1082" y="45" width="108" height="255" rx="8" fill="#d9e2f3" stroke="#6b7fae"/>
+    <text x="1136" y="165" fill="#1f3a6b">CLOUD</text>
+    <text x="1136" y="185" font-size="11" font-weight="normal" fill="#1f3a6b">storage, routing,</text>
+    <text x="1136" y="199" font-size="11" font-weight="normal" fill="#1f3a6b">analytics, ML</text>
+
+    <rect x="1082" y="310" width="108" height="125" rx="8" fill="#f6e3c0" stroke="#b8862b"/>
+    <text x="1136" y="362" fill="#6b4a10">FOG</text>
+    <text x="1136" y="382" font-size="11" font-weight="normal" fill="#6b4a10">driver phone</text>
+    <text x="1136" y="396" font-size="11" font-weight="normal" fill="#6b4a10">(BLE path only)</text>
+
+    <rect x="1082" y="445" width="108" height="95" rx="8" fill="#f2f2f2" stroke="#aaa"/>
+    <text x="1136" y="490" font-size="11" font-weight="normal" fill="#555">network only</text>
+    <text x="1136" y="504" font-size="11" font-weight="normal" fill="#555">(no compute)</text>
+
+    <rect x="1082" y="550" width="108" height="110" rx="8" fill="#f3d0d0" stroke="#b04a4a"/>
+    <text x="1136" y="598" fill="#6b1f1f">EDGE</text>
+    <text x="1136" y="616" fill="#6b1f1f">(MIST)</text>
+    <text x="1136" y="636" font-size="11" font-weight="normal" fill="#6b1f1f">on the node</text>
+  </g>
+
+  <!-- Path labels -->
+  <g font-size="13" font-weight="bold" text-anchor="middle">
+    <text x="425" y="682" fill="#333">Path A — in the van (TRANSIT): node → BLE → driver phone → cloud</text>
+    <text x="870" y="682" fill="#333">Path B — warehouse (STORAGE): node → LTE-M → cloud</text>
+  </g>
+
+  <!-- Legend + prototype mapping -->
+  <rect x="10" y="700" width="1180" height="170" rx="8" fill="#fafafa" stroke="#ccc"/>
+  <g font-size="13" fill="#222">
+    <text x="26" y="726" font-weight="bold">Legend</text>
+    <line x1="30" y1="748" x2="80" y2="748" stroke="#333" stroke-width="2" marker-start="url(#arr)" marker-end="url(#arr)"/>
+    <text x="92" y="752">uplink (telemetry, events) and downlink (ACK, profile, thresholds); radio links are half-duplex</text>
+    <line x1="30" y1="774" x2="80" y2="774" stroke="#c0392b" stroke-width="2.2" stroke-dasharray="7,5" marker-end="url(#arrRed)"/>
+    <text x="92" y="778">fallback: L2/L3 alert while the driver phone does not answer → node sends it over LTE-M directly</text>
+    <text x="26" y="808" font-weight="bold">Topology</text>
+    <text x="110" y="808">star on both paths (hub = driver phone or cell tower); no node-to-node traffic or relaying</text>
+
+    <text x="26" y="838" font-weight="bold">Prototype</text>
+    <text x="110" y="838">Things = Arduino UNO + Sensor Kit   |   access link = USB serial (emulates BLE / LTE-M)   |   fog gateway = PC Python receiver</text>
+    <text x="110" y="858">cloud &amp; applications = Python dashboard + CSV log</text>
+  </g>
+</svg>
