@@ -9,6 +9,8 @@ Built on an Arduino UNO R3 + Arduino Sensor Kit as a course prototype (CMU 14-76
 > **Demo video:** [YouTube](https://youtu.be/84-WUzCmY7E) · **Demo slides:** [Google Slides](https://docs.google.com/presentation/d/1gHDPqk4TUD2mY7Mceb7hMajbetVfsUK4/edit?usp=sharing)
 > **Final report:** [docs/report/ShipGuard_Final_Report.pdf](docs/report/ShipGuard_Final_Report.pdf) · **Poster:** [poster/ShipGuard_Poster_v3.pdf](poster/ShipGuard_Poster_v3.pdf)
 
+![Demo: driver checks the box and acknowledges the alert](docs/figures/demo.gif)
+
 ![Dashboard from a prototype run](docs/figures/dashboard_run.png)
 
 ## What it does
