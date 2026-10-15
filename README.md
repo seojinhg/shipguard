@@ -4,7 +4,7 @@ A battery-powered node that rides inside a fragile package, computes a **product
 
 Built on an Arduino UNO R3 + Arduino Sensor Kit as a course prototype (CMU 14-767 IoT Wireless Protocols and Standards, Fall 2026). The firmware core is portable C/C++ and unit-tested on the host.
 
-> **Demo video:** [Google Drive link](TODO-ADD-LINK)
+> **Demo video:** [YouTube](https://youtu.be/84-WUzCmY7E) · **Demo slides:** [Google Slides](https://docs.google.com/presentation/d/1gHDPqk4TUD2mY7Mceb7hMajbetVfsUK4/edit?usp=sharing)
 > **Final report:** [docs/report/ShipGuard_Final_Report.pdf](docs/report/ShipGuard_Final_Report.pdf) · **Poster:** [poster/ShipGuard_Poster_v3.pdf](poster/ShipGuard_Poster_v3.pdf)
 
 ![Dashboard from a prototype run](docs/figures/dashboard_run.png)
