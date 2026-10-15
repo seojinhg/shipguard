@@ -1,0 +1,15 @@
+name: host-tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run core unit tests
+        run: make test
+      - name: Syntax-check PC tools
+        run: python3 -m py_compile pc/gateway.py pc/dashboard.py pc/analyze_experiment.py

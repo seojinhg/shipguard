@@ -1,5 +1,7 @@
 # ShipGuard: Fragility-Aware Shipment Guardian
 
+[![host-tests](https://github.com/seojinhg/shipguard/actions/workflows/test.yml/badge.svg)](https://github.com/seojinhg/shipguard/actions/workflows/test.yml)
+
 A battery-powered node that rides inside a fragile package, computes a **product-specific damage-risk score on the edge** from shock, tilt and (planned) vibration, and escalates through four alert levels with local alarms and a driver acknowledgement (ACK) loop.
 
 Built on an Arduino UNO R3 + Arduino Sensor Kit as a course prototype (CMU 14-767 IoT Wireless Protocols and Standards, Fall 2026). The firmware core is portable C/C++ and unit-tested on the host.
