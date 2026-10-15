@@ -1,331 +1,329 @@
-# ShipGuard 설계 문서
+# ShipGuard Design Document
 
-파손 민감도 기반 배송 감시 노드의 프로토타입 설계문서이다. 보드로 실제 **구현 가능한 수준의 설계**를 정한다.
-"예시"로 표시한 수치는 상자 실험으로 보정하며 인증된 값이 아니다.
+Prototype design for a damage-risk monitoring node that rides inside a fragile package. This document describes a design that can actually be built on the board. Values marked "example" are meant to be calibrated with box experiments. They are not certified values.
 
-## 0. MVP 범위 확정
-아래 문서 전체는 **설계로서는 그대로 유지**하지만, 무엇이 실제로 동작해야 하는지(**MVP**)와 추가로 구현하는 것을(**확장 1**) 이 표로 확정한다. 이후 각 절의 항목에 `(MVP)` / `(확장 1)` 표시를 단다.
+## 0. Scope: MVP and extensions
 
-| 항목 | 판단 | 이유 |
+The whole design is kept on paper, but this table fixes what is implemented now (**MVP**) and what comes next (**Extension 1**, **Extension 2**). Sections below tag items with `(MVP)` or `(Ext 1)`.
+
+| Item | Decision | Reason |
 |---|---|---|
-| 상태 머신 4단계(`STORAGE/TRANSIT/HANDLING/ALERT`, 상태별 duty cycle) | **확장 1로.** MVP는 `MONITORING`/`ALERT` 2단계만 | 상태별 샘플링 전환과 센서 스케줄이 얽혀 디버깅 요소가 가장 많다 |
-| 누적 손상 `D` (Miner 식 근사) | **확장 1로** | 고정소수점 오버플로 위험이 있는 부분이고, 충격/기울기만으로도 L0~L3 시연은 충분하다 |
-| 진동 RMS | **확장 1로** (우선 추가) | 충격·기울기만으로 프로파일별 차이를 낙하 실험으로 보여줄 수 있다 |
-| ACK 자동 에스컬레이션 타이머 | **확장 1로.** MVP는 버튼 ACK만 | 타이머 관리가 하나 더 늘어나고, MVP에는 알림을 받을 "발송업체"도 없다 |
-| 스마트폰 푸시 알림 | **확장 1로 (opt-in)** | 외부 서비스 연동 비용과 보안 고려사항이 늘어난다. PC 대시보드 알림으로 개념은 충분히 보여준다 |
-| PIR, 가변저항 프로파일 3종 | **MVP 유지** | 이미 검증됐고(스모크 테스트) 코드 비용이 낮다 |
-| CRC-8 시리얼 프레임 | **MVP 유지** | 코드량이 적고 포트폴리오 가치가 크다 |
-| 전력 모델(데이터시트 기반 mAh 계산) | **MVP 유지** | 코딩이 아니라 계산이다 |
-| 호스트 단위 테스트, CI | **확장 2** | 기능 동작에는 영향이 없는 품질 항목 |
-| 가속도 레지스터 직접 읽기 최적화 | **확장 1 이후 (선택)** | 순수 최적화, 지금 급하지 않음 |
-| 2.4 통신 계획, 2.6 보안(문서) | **변경 없음** | 구현이 아니라 문서라 시간 비용이 없다 |
+| 4-state machine (`STORAGE/TRANSIT/HANDLING/ALERT`, per-state duty cycle) | **Ext 1.** MVP has only `MONITORING` and `ALERT` | Per-state sampling and sensor scheduling add the most debugging work |
+| Cumulative damage `D` (Miner-style approximation) | **Ext 1** | Fixed-point overflow risk. Shock and tilt are enough to show L0 to L3 |
+| Vibration RMS | **Ext 1** (first to add) | Shock and tilt already show profile differences in drop tests |
+| Automatic ACK escalation timer | **Ext 1.** MVP has the button ACK only | Needs another timer, and the MVP has no "shipper" to notify |
+| Smartphone push alerts | **Ext 1 (opt-in)** | Adds external-service cost and security concerns. The PC dashboard shows the idea |
+| PIR, 3 profiles on a potentiometer | **MVP** | Already verified by the smoke test, low code cost |
+| CRC-8 serial frame | **MVP** | Small code, high value |
+| Power model (datasheet-based mAh estimate) | **MVP** | A calculation, not code |
+| Host unit tests, CI | **Ext 2** | Quality items that do not change behavior |
+| Direct accelerometer register read | **After Ext 1 (optional)** | Pure optimization |
+| Communication plan, security notes | **No change** | Documents, not code |
 
-**MVP 실행 로직 요약**
+**MVP logic summary**
 ```
-loop() 400Hz:
-  가속도 읽기 → 충격 이벤트 감지, 기울기 계산 (정적 게이트)
-  → 위험 점수 = max(충격 점수, 기울기 점수)
-  → L0~L3 판정 (히스테리시스만 유지)
-  → LED/부저/OLED 갱신, 시리얼 프레임 송신
-  → 버튼 눌리면 ACK
-  → 가변저항으로 프로파일 선택, PIR로 "취급 중" 표시
+loop() at 400 Hz:
+  read accelerometer -> detect shock event, compute tilt (static gate)
+  -> risk score = max(shock score, tilt score)
+  -> level L0..L3 (with hysteresis)
+  -> update LED / buzzer / OLED, send serial frame
+  -> button press = ACK
+  -> potentiometer picks the profile, PIR marks "person present"
 ```
 
-**실기 통합 결과**: 보드에 올려 기능별로 확인하면서 아래를 바꿨다. 각 절에 반영했다.
-- ACK 규칙: 경보 중에만 유효하고 부저만 끈다(확인됨-지속 중). 위험이 커지면 다시 울린다(§5.3, §6.1).
-- 경보음은 ACK 전까지 유지된다. 단, 기울기만으로 난 경보는 ACK 전에 L0으로 돌아오면 저절로 해제된다(§5.3).
-- PIR은 "사람(기사)이 화물에 왔다"를 흉내 내는 센서로 쓴다. 위험 점수는 바꾸지 않고, 대응 시간 측정, ACK 안내 문구, 충격 원인 구분에 쓴다(§7).
-- PC 명령 `SET_INTERVAL`(보고 주기)과 `ARM`(새 배송)을 구현했고, `ACK_LOG`와 `PRESENCE` 프레임을 추가했다(§8).
-- PC 수신기 `pc/gateway.py`와 대시보드 `pc/dashboard.py`를 만들었다(§8.4).
+**Changes made during on-hardware integration** (reflected in each section):
+- ACK rule: valid only during an alert. It silences the buzzer only (acknowledged, still active). The buzzer sounds again if the risk rises (5.3, 6.1).
+- The alarm sounds until ACK. An alert caused by tilt alone clears by itself if the level returns to L0 before ACK (5.3).
+- PIR emulates "the driver came to the cargo". It does not change the risk score. It is used for response time, the ACK prompt, and separating shock causes (7).
+- PC commands `SET_INTERVAL` (report period) and `ARM` (new shipment) are implemented. `ACK_LOG` and `PRESENCE` frames were added (8).
+- PC receiver `pc/gateway.py` and dashboard `pc/dashboard.py` were written (8.4).
 
-**확장 시점**: 설계를 버리는 게 아니라 순서를 미루는 것이다. MVP 이후 확장 1 → 확장 2 순서로 이어서 구현한다.
+## 1. Constraints verified by the smoke test
 
-## 1. 스모크 테스트로 검증된 제약
-
-| 항목 | 실측 | 설계에 주는 의미 |
+| Item | Measured | Meaning for the design |
 |---|---|---|
-| SRAM | 전체 2,048 B, `setup()` 후 여유 약 1,200 B | 애플리케이션 데이터는 약 400 B 이내, 나머지는 스택과 여유 |
-| Flash | 32 KB, 키트 라이브러리 기준선 약 6.4 KB | 애플리케이션 약 10 KB 목표 |
-| 가속도 | ODR 400 Hz 설정에서 393 샘플/s, 샘플 손실 없음. `getAcceleration()` 672 µs, 샘플당 읽기 약 0.9 ms | 샘플 주기 2.5 ms 중 읽기 36%, 계산 여유 약 1.6 ms |
-| 측정 범위 | ±16g로 설정 가능. 맨 보드 충격에서도 포화 | **포화 인식형 점수**가 필수 |
-| 정지 시 가속도 | (x, y, z) = (0.012, 0.038, 1.025) g | 크기 1.026 g(오차 약 2.6%). **기준 자세 보정** 필요 |
-| I2C | 0x19 가속도, 0x38 DHT20, 0x3C OLED, 0x77 BMP280, 400 kHz, 충돌 없음 | |
-| DHT20 | `read()`는 마지막 읽기 후 1 s 이상 간격 필요, 블로킹. `requestData()`/`readData()`/`convert()` 분리 API 존재 | 환경 읽기를 **논블로킹으로 분할**한다 |
-| BMP280 | Seeed 드라이버는 타임아웃 없이 무한 대기 가능 | 응답 확인 후에만 호출, 버스 복구 루틴 포함 |
-| 온도 | BMP280 24.50 °C, DHT20 23.08 °C (차 1.4 °C) | 주변 온도는 DHT20 사용. 차이 원인은 미확정 |
-| PIR | D2(INT0), 움직임 후 HIGH 약 2.2 s 유지 | 인터럽트로 취급자 근접 이벤트 수신 |
-| OLED | U8x8 텍스트 모드, "SMOKE TEST / OLED OK" 표시 확인 | 그래픽 모드 사용 안 함 |
-| 핀 | 버튼 D4, 부저 D5, LED D6, 가변저항 A0, 소리 A2, 빛 A3 (모두 `l`, `o`로 동작 확인) | |
-| 기울기 (`t`) | 정지 시 롤/피치 0.7~3.5°, 빠르게 기울이면 롤 53.6° → 85.7°까지 추종하고 `|a|`는 0.54~1.14 g | 정적 판정 게이트와 데드밴드 필요, 각도 계산 자체는 정상 |
-| 샘플 값 | 기압 1013.6 hPa, 습도 51.4%, 빛 428, 소리 126, 가변저항 969, 버튼 0 | 모든 센서가 상식적인 값 |
+| SRAM | 2,048 B total, about 1,200 B free after `setup()` | Keep application data under about 400 B, the rest is stack and margin |
+| Flash | 32 KB, sensor-kit library baseline about 6.4 KB | Application target about 10 KB |
+| Accelerometer | 393 samples/s at 400 Hz ODR, no sample loss. `getAcceleration()` takes 672 µs, about 0.9 ms per sample | 36% of the 2.5 ms sample period is reading, about 1.6 ms left for compute |
+| Range | Can be set to ±16 g. A bare board tap still saturates | **Saturation-aware score** is required |
+| Rest reading | (x, y, z) = (0.012, 0.038, 1.025) g | Magnitude 1.026 g (about 2.6% error). **Reference-pose calibration** needed |
+| I2C | 0x19 accelerometer, 0x38 DHT20, 0x3C OLED, 0x77 BMP280, 400 kHz, no conflicts | |
+| DHT20 | `read()` needs 1 s or more between reads and blocks. Split API exists: `requestData()`, `readData()`, `convert()` | **Split environment reads** so they never block |
+| BMP280 | The Seeed driver can wait forever (no timeout) | Call only after an ACK check, include a bus-recovery routine |
+| Temperature | BMP280 24.50 °C, DHT20 23.08 °C (1.4 °C apart) | Use DHT20 for ambient. Cause of the gap is unknown |
+| PIR | D2 (INT0), output stays HIGH about 2.2 s after motion | Use an interrupt for the "handler nearby" event |
+| OLED | U8x8 text mode, "SMOKE TEST / OLED OK" shown | No graphics mode |
+| Pins | Button D4, buzzer D5, LED D6, potentiometer A0, sound A2, light A3 (all checked with the `l` and `o` smoke-test commands) | |
+| Tilt (`t`) | At rest roll/pitch 0.7 to 3.5°. Tilting fast, roll followed from 53.6° to 85.7° while `|a|` swung between 0.54 and 1.14 g | Need a static gate and a dead band. The angle math itself is fine |
+| Sample values | Pressure 1013.6 hPa, humidity 51.4%, light 428, sound 126, potentiometer 969, button 0 | All sensors read sensible values |
 
-## 2. 소프트웨어 구조
+## 2. Software structure
 
-**중요(실측 확인)**: Arduino IDE/arduino-cli는 **스케치 폴더 바로 아래에 있는 .cpp/.h 파일만 컴파일**하고, `src/core/`처럼 하위 폴더에 있는 .cpp는 무시한다(링크 에러 `undefined reference`로 직접 확인했다). 그래서 아래처럼 원래 계획했던 `core/`, `hal/` 하위 폴더 구조 대신 **모든 파일을 스케치 폴더에 평평하게** 둔다. 파일 이름 자체로 core/hal 구분을 유지한다.
+**Important (verified):** the Arduino IDE and arduino-cli compile only the `.cpp` and `.h` files directly inside the sketch folder. They ignore `.cpp` files in subfolders such as `src/core/` (confirmed by an `undefined reference` link error). So all files sit flat in the sketch folder, and file names keep the core/hal split.
 
 ```
 firmware/
-  shipguard/                # 이 폴더 전체가 Arduino 스케치이다. 하위 폴더 없음.
-    shipguard.ino           # setup()/loop(): 스케줄러, HAL(센서/액추에이터 직접 제어), 위 core 모듈 호출
-    crc8.h / crc8.cpp       # [core] CRC-8
-    frame.h / frame.cpp     # [core] 프레임 인코딩/디코딩
-    features.h / features.cpp # [core] 충격, ΔV, 기울기 계산 (MVP, 고정소수점 + 기울기만 float)
-    risk.h / risk.cpp       # [core] 프로파일, 위험 점수, 히스테리시스 단계 판정
-    fsm.h / fsm.cpp         # [core] MONITORING/ALERT 상태 머신
-  tests/                    # 호스트(PC)에서 core 파일만 컴파일해 단위 테스트 (Arduino 빌드와 무관한 별도 폴더)
+  shipguard/                  # this whole folder is the Arduino sketch, no subfolders
+    shipguard.ino             # setup()/loop(): scheduler, hardware access, calls the core modules
+    crc8.h / crc8.cpp         # [core] CRC-8
+    frame.h / frame.cpp       # [core] frame encode/decode
+    features.h / features.cpp # [core] shock, delta-V, tilt (fixed-point, tilt in float)
+    risk.h / risk.cpp         # [core] profiles, risk score, level with hysteresis
+    fsm.h / fsm.cpp           # [core] MONITORING/ALERT state machine
+  tests/                      # host unit tests: only the core files, built with g++
 ```
 
-**MVP 단순화**: HAL(가속도/OLED/버튼/부저/LED/PIR 제어)은 아직 별도 파일로 안 뽑고 `shipguard.ino` 안에 직접 둔다. core 5개 파일만 `Arduino.h`를 include하지 않도록 지켜서 호스트 테스트 가능성을 확보한다. HAL 분리는 확장 2(단위 테스트/CI) 단계에서 시간이 되면 진행한다.
+**MVP simplification:** hardware access (accelerometer, OLED, button, buzzer, LED, PIR) stays inside `shipguard.ino`. Only the five core files avoid including `Arduino.h`, so they compile on a PC. Splitting out a separate hardware layer is part of Ext 2.
 
-원칙: **core는 하드웨어를 모른다.** `Arduino.h`를 include하지 않고, 시각은 인자로 받고(`now_ms`), 입력은 구조체로 받고, 출력은 구조체로 돌려준다. hal 파일만 `Arduino.h`/`Wire.h`를 쓴다. 이렇게 나누면 core 파일들은 PC의 일반 C++ 컴파일러로도 그대로 컴파일되어 `tests/`에서 단위 테스트할 수 있다(Arduino 빌드 시스템의 하위 폴더 제약과 무관하다 — `tests/`는 애초에 스케치가 아니라 g++로 직접 빌드하는 별도 폴더이기 때문이다).
+**Rule: the core knows nothing about hardware.** It does not include `Arduino.h`. Time comes in as an argument (`now_ms`), input comes in as a struct, and output goes back as a struct. This lets plain `g++` build the core for unit tests.
 
-## 3. 실행 모델: 협력형 스케줄러
+## 3. Execution model: cooperative scheduler
 
-`delay()`를 쓰지 않고 `micros()` 기준 태스크 표로 돌린다.
+No `delay()`. A task table runs on `micros()`.
 
-| 태스크 | 주기 | 하는 일 | 시간 예산 |
+| Task | Period | Work | Time budget |
 |---|---|---|---|
-| `sample` | 2.5 ms (400 Hz) | 가속도 읽기, 특징 갱신, 충격 트리거 검사 | 읽기 0.9 ms + 계산 ≤ 0.6 ms |
-| `second` | 1 s | 기울기 갱신, 위험 점수 갱신, 상태 전이. 진동 RMS 창 마감은 **확장 1**에서 추가 | ≤ 1.5 ms |
-| `env` | 10 s (`MONITORING`만) | DHT20/BMP280 논블로킹 읽기 | 한 번에 ≤ 1 ms 단위로 분할 |
-| `ui` | 20 Hz | LED, 부저 패턴, OLED 부분 갱신 | OLED는 글자 몇 개만, ≤ 1.5 ms |
-| `comm` | 이벤트/주기 | 프레임 송신, 명령 수신 | 송신은 TX 버퍼에 넣기만 |
+| `sample` | 2.5 ms (400 Hz) | Read accelerometer, update features, check shock trigger | 0.9 ms read + at most 0.6 ms compute |
+| `second` | 1 s | Update tilt and risk score, run state transitions. Vibration RMS window closes here in **Ext 1** | at most 1.5 ms |
+| `env` | 10 s (`MONITORING` only) | Non-blocking DHT20/BMP280 read | Split into steps of about 1 ms or less |
+| `ui` | 20 Hz | LED, buzzer pattern, partial OLED update | Only a few characters, at most 1.5 ms |
+| `comm` | Event or periodic | Send frames, receive commands | Sending only fills the TX buffer |
 
-- **규칙**: 어떤 태스크도 다음 `sample` 마감(2.5 ms)을 넘기지 않는다. 마감을 놓치면 `deadline_miss` 카운터를 올리고 상태 프레임으로 보고한다.
-- DHT20은 `requestData()` 후 ≥ 80 ms 뒤에 `readData()`로 나눠 읽어 블로킹을 없앤다(라이브러리 API는 확인 완료, 동작은 구현 시 검증).
-- `ALERT` 중에는 `env` 태스크를 멈춘다(MVP 2단계 기준. 확장 1의 `HANDLING`도 동일하게 멈춘다).
-- **최적화 계획(측정 대상)**: 라이브러리의 `getAcceleration()`은 X/Y/Z를 따로 읽고 float로 변환한다(672 µs). 레지스터 `0x28|0x80`부터 6바이트를 한 번에 읽고 정수(mg)로 변환하면 약 0.3 ms까지 줄일 것으로 예상한다. 전후를 측정해 보고한다.
-- PIR(D2)는 `attachInterrupt`로 플래그만 세우고 처리는 메인 루프에서 한다. 부저는 `tone()`(Timer2)을 쓴다.
+- **Rule:** no task may run past the next `sample` deadline (2.5 ms). A missed deadline raises the `deadline_miss` counter, which is reported in the status frame.
+- DHT20: call `requestData()`, then call `readData()` at least 80 ms later. This removes blocking.
+- `env` stops during `ALERT` (the Ext 1 `HANDLING` state stops it too).
+- **Planned optimization (to be measured):** the library reads X, Y and Z separately and converts to float (672 µs). Reading 6 bytes from register `0x28|0x80` in one go and converting to integer mg should take about 0.3 ms. Measure before and after.
+- PIR (D2) uses `attachInterrupt` only to set a flag. The main loop does the work. The buzzer uses `tone()` (Timer2).
 
-## 4. 특징 추출 (고정소수점, 단위 mg)
+## 4. Feature extraction (fixed-point, units of mg)
 
-- 샘플: `int16 ax, ay, az` (mg). 크기 `|a|`는 정수 제곱근으로 계산한다.
-- **포화**: 어느 축이든 `|axis| ≥ 15,000 mg`이면 `sat = 1`.
-- **충격 이벤트**: `dyn = | |a| − 1000 |`(중력 제외). `dyn > 2,000 mg`에서 시작, `dyn < 500 mg`가 8샘플(20 ms) 이어지면 종료, 최대 200 ms.
-  - `peak_mg` = 이벤트 중 `dyn` 최댓값
-  - `ΔV(mm/s) ≈ Σ dyn × 0.0245` (샘플 간격 2.5 ms, 1 mg·2.5 ms = 0.0245 mm/s). 정수로는 `Σ dyn / 41`. 방향을 무시한 근사치이며, **포화된 파형의 ΔV는 하한 추정**이다.
-  - 시작 전 20 ms를 포착하려고 16샘플 링 버퍼(96 B)를 둔다.
-- **진동 RMS(1 s 창, 확장 1)**: MVP에는 넣지 않는다. 입력은 `dyn`을 ±2,000 mg로 클리핑(충격은 별도 경로)하고 2 mg 단위로 스케일한다. 최대 1,000² × 400 = 4×10⁸ < 2³²이라 `uint32` 누적이 넘치지 않는다.
-- **기울기**: 1 s 평균 벡터로 기준 자세(보정 시 저장한 중력 벡터)와의 각도를 1초에 한 번 float로 계산한다. 정지 자세 오프셋(y = 0.038 g, 약 2°)은 시작 시 보정으로 제거한다. `dwell`은 한계각을 넘은 누적 초이다. **정적 판정 게이트**: `| |a| − 1000 | < 150 mg`일 때만 각도를 갱신한다. 스모크 테스트에서 빠르게 기울이는 동안 `|a|`가 0.54~1.14 g로 흔들려 순간 각도를 믿을 수 없었다. 정지 시 롤/피치는 0.7~3.5°(흔들림 약 ±1.5°)였으므로 5° 데드밴드를 둔다.
-- **개봉**: 빛(A3) 값이 이동 평균 대비 200 이상 급변하면 `open` 플래그.
+- Sample: `int16 ax, ay, az` in mg. The magnitude `|a|` uses an integer square root.
+- **Saturation:** if any axis has `|axis| >= 15,000 mg`, set `sat = 1`.
+- **Shock event:** `dyn = | |a| - 1000 |` (gravity removed). Start when `dyn > 2,000 mg`. End when `dyn < 500 mg` for 8 samples (20 ms). Maximum length 200 ms.
+  - `peak_mg` = largest `dyn` in the event
+  - `delta-V (mm/s) ~ sum(dyn) x 0.0245` (2.5 ms sample period, 1 mg for 2.5 ms = 0.0245 mm/s). In integers: `sum(dyn) / 41`. This ignores direction, and **for a saturated waveform it is a lower bound**.
+  - A 16-sample ring buffer (96 B) keeps the 20 ms before the event.
+- **Vibration RMS (1 s window, Ext 1):** not in the MVP. Clip `dyn` to ±2,000 mg (shocks use their own path) and scale in 2 mg units. The maximum is 1,000² × 400 = 4×10⁸, below 2³², so a `uint32` sum does not overflow.
+- **Tilt:** once per second, average the vector over 1 s and compute the angle to the reference pose (the gravity vector stored at calibration) in float. The rest offset (y = 0.038 g, about 2°) is removed by calibration at start. `dwell` counts the seconds above the limit angle. **Static gate:** update the angle only when `| |a| - 1000 | < 150 mg`, because `|a|` swung from 0.54 to 1.14 g during fast tilting. Rest roll/pitch noise was 0.7 to 3.5° (about ±1.5°), so a 5° dead band is used.
+- **Open detection:** if the light value (A3) jumps by 200 or more from its moving average, set the `open` flag.
 
-## 5. 위험 점수
+## 5. Risk score
 
-### 5.1 민감도 프로파일 (flash에 상수로 둠, 가변저항으로 선택)
+### 5.1 Sensitivity profiles (constants in flash, chosen by the potentiometer)
 
-| 항목 | GLASS (유리, 세라믹) | ELECTRONICS | ROBUST |
+| Item | GLASS (glass, ceramic) | ELECTRONICS | ROBUST |
 |---|---|---|---|
-| `G_crit` 피크 (mg) | 4,000 | 8,000 | 14,000 |
+| `G_crit` peak (mg) | 4,000 | 8,000 | 14,000 |
 | `dV_crit` (mm/s) | 1,500 | 2,500 | 4,000 |
 | `vib_limit` RMS (mg) | 150 | 300 | 600 |
 | `tilt_limit` (°) / `tilt_dwell` (s) | 30 / 30 | 45 / 60 | 60 / 120 |
 
-`dV_crit`는 낙하 높이 `h = ΔV²/2g` 로 환산해 골랐다: GLASS 약 11 cm, ELECTRONICS 약 32 cm, ROBUST 약 82 cm. 그래서 계획된 5/10/20 cm 낙하 시험에서 GLASS는 L1 → L2 → L3를 차례로 보이도록 의도했다. **모두 예시이며 실험으로 보정한다.**
+`dV_crit` was picked by converting to a drop height with `h = dV²/2g`: about 11 cm for GLASS, 32 cm for ELECTRONICS, 82 cm for ROBUST. So in the planned 5/10/20 cm drop tests, GLASS is meant to show L1, L2, L3 in turn. **All values are examples to be calibrated by experiment.**
 
-### 5.2 점수 산식 (내부 `uint16`, 표시는 0~100으로 제한)
+### 5.2 Score formula (internal `uint16`, displayed as 0 to 100)
 
 **MVP**
-- `r_shock = 100 × max(peak/G_crit, ΔV/dV_crit)` (이벤트마다 계산). 포화 시 `peak = 16,000`으로 보고 `sat` 플래그를 세운다. 이벤트 후 30 s 유지하고 초당 2점씩 감쇠한다.
-- `r_tilt = 100 × dwell / tilt_dwell`. 각도가 `1.5 × tilt_limit`를 넘으면 최소 70.
-- **점수 `S = max(r_shock, r_tilt)`**
+- `r_shock = 100 x max(peak/G_crit, dV/dV_crit)`, computed per event. When saturated, use `peak = 16,000` and set the `sat` flag. Hold for 30 s after the event, then decay 2 points per second.
+- `r_tilt = 100 x dwell / tilt_dwell`. If the angle exceeds `1.5 x tilt_limit`, the minimum is 70.
+- **Score `S = max(r_shock, r_tilt)`**
 
-**확장 1에서 추가**
-- `r_vib = 100 × RMS_1s(EMA) / vib_limit`
-- `D`(누적 손상): 충격 이벤트마다 `+20 × (peak/G_crit)²` (%, `peak ≥ 0.3 G_crit`일 때), 진동은 RMS가 한계의 50% 이상일 때 초당 `+0.005 × (RMS/vib_limit)²` (%). 감소하지 않는다. (Miner 식의 누적 손상 개념을 단순화한 예시)
-- 확장 후 점수는 **`S = max(r_shock, r_vib, r_tilt, D)`** (가장 약한 고리 방식)로 넓어진다
+**Added in Ext 1**
+- `r_vib = 100 x RMS_1s(EMA) / vib_limit`
+- `D` (cumulative damage): per shock event add `20 x (peak/G_crit)²` percent when `peak >= 0.3 G_crit`. For vibration, add `0.005 x (RMS/vib_limit)²` percent per second when RMS is at least 50% of the limit. `D` never decreases. (A simplified Miner-style example.)
+- The score then becomes **`S = max(r_shock, r_vib, r_tilt, D)`** (weakest-link style).
 
-### 5.3 단계와 히스테리시스
+### 5.3 Levels and hysteresis
 
-| 단계 | 조건 | 로컬 동작 |
+| Level | Condition | Local action |
 |---|---|---|
-| L0 | `S < 40` | 초록 상태(LED 꺼짐 또는 저빈도 점멸) |
-| L1 | `S ≥ 40` | LED 깜빡임, OLED "WATCH" |
-| L2 | `S ≥ 70` | 경보 진입(§6.1), 간헐 부저, OLED "L2 CHECK" |
-| L3 | `S ≥ 100` 또는 `sat` 이벤트 | 경보 진입, 연속 부저, OLED "L3 INSPECT" |
+| L0 | `S < 40` | Normal (LED off or slow blink) |
+| L1 | `S >= 40` | LED blinks, OLED "WATCH" |
+| L2 | `S >= 70` | Enter alert (6.1), intermittent buzzer, OLED "L2 CHECK" |
+| L3 | `S >= 100` or a `sat` event | Enter alert, continuous buzzer, OLED "L3 INSPECT" |
 
-- 내려갈 때는 기준값 − 10 아래로 5 s 이상 유지되어야 한다(히스테리시스).
-- **경보음은 ACK(버튼 D4 또는 PC `0x81`, 같은 함수) 전까지 유지**된다. 단계가 내려가도 꺼지지 않으며, 패턴은 그 경보 동안 도달한 가장 높은 단계를 따른다(L3 도달 = 연속음, 아니면 간헐음).
-- **경보 원인에 따른 해제 규칙**:
-  - **충격 경보** (충격 점수가 70 이상이 되어 L2+에 들어간 경우): 사건형이다. 점수가 줄어도 이미 파손됐을 수 있으므로 **ACK 전까지 해제되지 않는다**.
-  - **기울기 경보** (충격 점수 70 미만): 상태형이다. **ACK 전에 단계가 L0까지 돌아오면 저절로 해제**되고, 로그에는 ACK 없이 끝난 경보로 남는다(경보 피로 방지). 기울기 경보 중에 충격이 더해지면 충격 경보로 바뀐다.
-- **ACK의 의미**: "문제를 해결했다"가 아니라 "경보를 봤고 처리하겠다"이다. ACK는 부저만 끄고 경보 상태(LED, OLED `ALERT ACKED`)는 단계가 L2 아래로 내려갈 때까지 유지한다(산업용 경보 관리의 확인됨-지속 중 상태). ACK 후 **위험이 커지면**(단계 상승, 또는 그 자체로 70점 이상인 새 충격) 다시 울리고 새 ACK가 필요하다. 경보가 없을 때 누른 ACK는 무시해서 다음 경보를 미리 꺼 버리지 않는다.
-- 확장 1에서 `D`(누적 손상)가 추가되면 ACK 후에도 지워지지 않는다. 새 배송 시작(`ARM`)에서만 초기화한다.
+- To go down, the score must stay below the threshold minus 10 for at least 5 s (hysteresis).
+- **The alarm sounds until ACK** (button D4 or PC command `0x81`, same function). It does not stop when the level drops. The pattern follows the highest level reached during that alert (L3 reached = continuous, otherwise intermittent).
+- **Clear rule by alert cause:**
+  - **Shock alert** (shock score reached 70 or more and entered L2+): an event type. The item may already be damaged even if the score falls, so it **stays until ACK**.
+  - **Tilt alert** (shock score below 70): a state type. If the level returns to L0 **before ACK, it clears by itself**, and the log records an alert that ended without ACK (this limits alert fatigue). If a shock arrives during a tilt alert, it becomes a shock alert.
+- **Meaning of ACK:** "I saw the alert and will handle it", not "the problem is fixed". ACK silences only the buzzer. The alert state (LED, OLED `ALERT ACKED`) stays until the level drops below L2 (the "acknowledged, still active" state from industrial alarm management). If **risk rises after ACK** (level goes up, or a new shock scores 70 or more), the buzzer sounds again and a new ACK is needed. An ACK pressed when no alert is active is ignored, so it cannot pre-silence the next alert.
+- In Ext 1, `D` is not cleared by ACK. Only a new shipment (`ARM`) resets it.
 
-## 6. 상태 머신
+## 6. State machine
 
-### 6.1 MVP: `MONITORING` / `ALERT` 2단계
+### 6.1 MVP: `MONITORING` and `ALERT`
 
-| 현재 상태 | 조건 | 다음 상태 |
+| Current state | Condition | Next state |
 |---|---|---|
-| MONITORING | 단계 ≥ L2 | ALERT (ACK 대기). 충격 점수 ≥ 70이면 충격 경보로 고정 |
-| ALERT (ACK 대기) | 버튼 또는 PC ACK | ALERT (ACK됨), `ACK_LOG` 전송 |
-| ALERT (ACK 대기) | 기울기 경보이고 단계 = L0 | MONITORING (ACK 없이 자동 해제) |
-| ALERT (ACK됨) | 단계 상승 또는 70점 이상 새 충격 | ALERT (ACK 대기) (다시 울림) |
-| ALERT (ACK됨) | 단계 < L2 | MONITORING |
-| 아무 상태 | PC `ARM` | 전부 초기화 → MONITORING |
+| MONITORING | Level >= L2 | ALERT (waiting for ACK). If shock score >= 70, it is locked as a shock alert |
+| ALERT (waiting) | Button or PC ACK | ALERT (acknowledged), send `ACK_LOG` |
+| ALERT (waiting) | Tilt alert and level = L0 | MONITORING (cleared without ACK) |
+| ALERT (acknowledged) | Level rises, or a new shock scores 70 or more | ALERT (waiting) (sounds again) |
+| ALERT (acknowledged) | Level < L2 | MONITORING |
+| Any | PC `ARM` | Reset everything, go to MONITORING |
 
-| 상태 | 부저 | LED | OLED 6행 | OLED 7행 |
+| State | Buzzer | LED | OLED row 6 | OLED row 7 |
 |---|---|---|---|---|
-| MONITORING | 꺼짐 | L0 꺼짐, L1 깜빡임 | `MONITOR` | `PIR` / `OPEN` |
-| ALERT (ACK 대기) | 울림 | 켜짐 | `ALERT PRESS` | 사람 감지 시 `PRESS BTN TO ACK` |
-| ALERT (ACK됨) | 꺼짐 | L2 이상이면 켜짐 | `ALERT ACKED` | `PIR` / `OPEN` |
+| MONITORING | Off | L0 off, L1 blinks | `MONITOR` | `PIR` / `OPEN` |
+| ALERT (waiting) | On | On | `ALERT PRESS` | `PRESS BTN TO ACK` when a person is detected |
+| ALERT (acknowledged) | Off | On if L2 or higher | `ALERT ACKED` | `PIR` / `OPEN` |
 
-- `MONITORING`: 가속도는 항상 400 Hz. 위험 점수를 계산해 L0/L1을 OLED와 LED로만 표시하고 기사를 방해하지 않는다. 환경 센서는 10 s마다(첫 측정은 부팅 약 1.5 s 뒤), 시리얼 요약 보고는 기본 60 s마다이고 시험 시에는 PC가 `SET_INTERVAL`로 1 s를 요청한다.
-- `ALERT`: 환경 센서 읽기는 멈추고, 시리얼 보고는 최대 5 s 간격으로 빨라진다. 단계나 상태가 바뀔 때마다 `ALERT` 프레임을 즉시 보낸다.
-- **ODR은 두 상태 모두 400 Hz를 유지**한다(가속도 INT 핀을 쓸 수 없어 낮은 ODR에서는 짧은 충격을 놓침). 상태별로 달라지는 것은 보고 주기, 환경 센서 스케줄, UI뿐이다.
-- PIR과 개봉(빛 급변)은 MVP에서 상태 전이와 위험 점수를 바꾸지 않는다(전이는 확장 1의 `HANDLING`이 맡는다). PIR의 MVP 용도는 §7을 본다.
+- `MONITORING`: the accelerometer always runs at 400 Hz. The risk score is computed and L0/L1 are shown only on the OLED and LED, so the driver is not disturbed. Environment sensors are read every 10 s (the first about 1.5 s after boot). The serial summary is sent every 60 s by default. For testing, the PC requests 1 s with `SET_INTERVAL`.
+- `ALERT`: environment reads stop and serial reports speed up to at most every 5 s. An `ALERT` frame is sent immediately on every level or state change.
+- **ODR stays at 400 Hz in both states.** The accelerometer interrupt pin is not available, and a lower ODR would miss short shocks. Only report period, environment schedule and UI change by state.
+- In the MVP, PIR and open detection (light jump) do not change the state or the risk score. The state change belongs to the Ext 1 `HANDLING` state. See section 7 for the MVP use of PIR.
 
-### 6.2 확장 1: 컨텍스트 세분화 (`STORAGE/TRANSIT/HANDLING`)
+### 6.2 Ext 1: context states (`STORAGE/TRANSIT/HANDLING`)
 
-`MONITORING`을 아래처럼 쪼개 배터리 절약 서사를 완성한다.
+`MONITORING` is split as below to complete the battery-saving story.
 
-| 전이 | 조건 (시험 모드는 시간을 1/30로 압축) |
+| Transition | Condition (test mode compresses time by 30x) |
 |---|---|
-| `STORAGE → TRANSIT` | RMS_1s ≥ 25 mg가 5 s 연속 (진동 RMS 필요) |
-| `TRANSIT → STORAGE` | RMS_1s < 15 mg가 60 s 연속 |
-| `* → HANDLING` | 충격 이벤트, 2 s 내 기울기 변화 > 10°, PIR 활성, 개봉 중 하나. 최소 10 s 유지, 이벤트가 이어지면 연장 |
-| `HANDLING → TRANSIT/STORAGE` | 10 s 동안 조용하면 직전 컨텍스트로 복귀 |
+| `STORAGE -> TRANSIT` | RMS_1s >= 25 mg for 5 s in a row (needs vibration RMS) |
+| `TRANSIT -> STORAGE` | RMS_1s < 15 mg for 60 s in a row |
+| `* -> HANDLING` | Any of: shock event, tilt change over 10° within 2 s, PIR active, box open. Stay at least 10 s, extend while events continue |
+| `HANDLING -> TRANSIT/STORAGE` | Return to the previous context after 10 quiet seconds |
 
-| 상태 | 주기 요약 보고 | 환경 읽기 | UI |
+| State | Periodic report | Environment read | UI |
 |---|---|---|---|
-| STORAGE | 900 s | 10 s | OLED 저빈도 |
+| STORAGE | 900 s | 10 s | OLED low rate |
 | TRANSIT | 60 s | 10 s | OLED 1 Hz |
-| HANDLING | 5 s | 정지 | 필요한 글자만 |
-| ALERT | 2 s | 정지 | 부저/LED 우선 |
+| HANDLING | 5 s | Stopped | Only needed characters |
+| ALERT | 2 s | Stopped | Buzzer and LED first |
 
-~~항공 구간(`AIR`) 추정~~: 배포 범위를 도시권 "물류센터 → 매장"으로 좁히면서 항공 구간은 범위 밖이 되어 삭제했다. 펌웨어의 `SG_FLAG_AIR` 비트(`frame.h`)와 `SIM_AIR` 명령 번호는 예약으로만 남긴다. 음영 구간(터널, 지하 하역장)에서는 저장 후 전송한다.
+~~Air-segment (`AIR`) detection~~ was removed when the deployment scope narrowed to a metropolitan "warehouse to store" route, which has no air segment. The `SG_FLAG_AIR` bit in `frame.h` and the `SIM_AIR` command number stay reserved. In dead zones (tunnels, underground docks), events are stored and forwarded later.
 
-## 7. 알림, ACK, 에스컬레이션
+## 7. Alerts, ACK and escalation
 
-**MVP**: 로컬 액추에이터(부저/LED/OLED)와 버튼 ACK만 동작한다. 역할별 푸시와 자동 에스컬레이션은 코드로 시연하지 않는다.
+**MVP:** only the local actuators (buzzer, LED, OLED) and the button ACK work. Role-based push and automatic escalation are not demonstrated in code.
 
-**PIR = 기사 도착 (MVP)**: 닫힌 상자 안의 PIR은 아무것도 감지하지 못하므로, PIR을 "사람(기사)이 화물에 왔다"를 흉내 내는 센서로 쓴다. 실제 제품에서는 기사 폰의 BLE 신호 세기(RSSI)가 같은 정보를 준다. 위험 점수는 바꾸지 않는다.
-- 감지 상태 = PIR 출력이 HIGH이거나 마지막 HIGH 후 5 s 이내. PIR은 사람이 있는 동안 약 2 s HIGH, 1~2 s LOW를 반복하므로 유지 시간이 이보다 짧으면 깜빡이고 매번 "도착"으로 기록된다(실측).
-- 감지가 시작될 때 `PRESENCE` 프레임을 한 번 보낸다. 대시보드는 **경보 → 기사 도착 → ACK 시간**을 계산한다.
-- ACK 대기 중인 경보에서 사람이 감지되면 OLED 7행에 `PRESS BTN TO ACK`를 띄운다.
-- 모든 프레임에 PIR 비트가 실리므로 대시보드가 충격을 "취급 중(사람 있음)"과 "무인(차량 주행)"으로 나눈다.
-- PIR 감지 거리가 수 m라 책상 앞에 앉아만 있어도 감지된다. 시험에서는 PIR을 센서 키트 아래에 숨겨 두어 "기사 부재"로 하고, 기사가 확인하는 시점에 숨겨 둔 센서를 꺼내 "기사 도착"으로 보여 준다.
+**PIR = driver arrived (MVP).** A PIR sensor inside a closed box would detect nothing, so the PIR emulates "a person (the driver) came to the cargo". In a real product, the BLE signal strength (RSSI) of the driver's phone would give the same information. It does not change the risk score.
+- Detected state = PIR output is HIGH, or less than 5 s since the last HIGH. A PIR stays HIGH about 2 s and LOW for 1 to 2 s while a person is present, so a shorter hold time makes it flicker and log a new "arrival" each time (measured).
+- A `PRESENCE` frame is sent once when detection starts. The dashboard computes **alert -> driver arrival -> ACK time**.
+- If a person is detected while an alert waits for ACK, OLED row 7 shows `PRESS BTN TO ACK`.
+- Every frame carries a PIR bit, so the dashboard splits shocks into "during handling (person present)" and "unattended (vehicle moving)".
+- The PIR range is several meters, so even sitting at a desk triggers it. In tests, the PIR is hidden under the Sensor Kit to represent "driver absent", then taken out at the moment the driver checks, to represent "driver arrived".
 
-**확장 1**: 아래는 설계이고, 구현 시 PC의 Python 게이트웨이가 프레임을 파싱해 실제로 동작시킨다. **외부 알림 서비스는 사용자 확인 후에만 활성화**하며, 그때까지는 로컬 대시보드 알림으로 대체한다.
+**Ext 1:** the design below would run in the PC Python gateway, which parses frames. **External notification services are enabled only after the user confirms.** Until then, local dashboard alerts stand in.
 
-| 단계 | 기사 | 고객 | 발송업체 |
+| Level | Driver | Customer | Shipper |
 |---|---|---|---|
-| L1 | 알림 없음 | 알림 없음 | 대시보드 반영 |
-| L2 | **푸시**: "다음 안전한 정차 지점에서 점검하세요" | 알림 없음 | 푸시 |
-| L3 | **푸시**: "안전한 곳에 정차한 뒤 상품을 확인하세요" | 푸시 (요약) | 푸시 (상세) |
-| 개봉(TAMPER) | 푸시 | 푸시 | 푸시 |
+| L1 | No alert | No alert | Shown on dashboard |
+| L2 | **Push:** "Check at the next safe stop" | No alert | Push |
+| L3 | **Push:** "Stop somewhere safe, then check the item" | Push (summary) | Push (detail) |
+| Open (TAMPER) | Push | Push | Push |
 
-- 재알림 쿨다운: L2 120 s, L3 60 s(ACK 전까지).
-- **에스컬레이션**: L3에서 300 s, L2에서 600 s 안에 ACK가 없으면 발송업체에 에스컬레이션 알림.
-- 알림 문구는 운전 중 조작을 요구하지 않는다.
+- Re-alert cooldown: L2 120 s, L3 60 s (until ACK).
+- **Escalation:** if there is no ACK within 300 s at L3 or 600 s at L2, send an escalation alert to the shipper.
+- Alert wording never asks the driver to do anything while driving.
 
-## 8. 시리얼 프로토콜 (115200 8N1)
+## 8. Serial protocol (115200 8N1)
 
-### 8.1 프레임
+### 8.1 Frame
 
 ```
-[SOF][LEN][TYPE][SEQ][PAYLOAD (LEN 바이트)][CRC8]
+[SOF][LEN][TYPE][SEQ][PAYLOAD (LEN bytes)][CRC8]
 ```
 
-- 노드 → PC: `SOF = 0xA5`, PC → 노드: `SOF = 0x5A`
-- `CRC8`: 다항식 `0x07`, 초기값 `0x00`, `LEN`부터 `PAYLOAD` 끝까지에 대해 계산
-- `SEQ`: 송신 방향별 1바이트 증가. PC가 누락과 중복을 검출한다.
-- 최대 `LEN = 24`, 프레임 최대 29 B. 115200 baud에서 약 2.5 ms이며 TX 버퍼(64 B)에 넣으면 즉시 반환한다.
-- 수신은 SOF 동기화, 길이 검사, CRC 검사, 타임아웃으로 견고하게 처리하고 잘못된 프레임은 버리고 카운트한다.
+- Node to PC: `SOF = 0xA5`. PC to node: `SOF = 0x5A`.
+- `CRC8`: polynomial `0x07`, initial value `0x00`, computed from `LEN` to the end of `PAYLOAD`.
+- `SEQ`: one byte, incremented per direction. The PC detects gaps and duplicates.
+- Maximum `LEN = 24`, so a frame is at most 29 B. At 115200 baud that is about 2.5 ms. Sending returns at once after the data goes into the 64 B TX buffer.
+- Receiving is hardened with SOF sync, length check, CRC check and a timeout. Bad frames are dropped and counted.
 
-### 8.2 노드 → PC 메시지
+### 8.2 Node to PC messages
 
-| TYPE | 이름 | 내용 |
+| TYPE | Name | Content |
 |---|---|---|
-| `0x01` | TELEMETRY | 주기 요약 (아래 페이로드) |
-| `0x02` | EVENT | 충격 이벤트 (TELEMETRY와 같은 레이아웃, 이벤트 시점 값) |
-| `0x03` | ALERT | 단계 전이 (같은 레이아웃) |
-| `0x04` | ACK_LOG | 8 B: `t_s` u32, 출처 u8 (0 = 버튼, 1 = PC), ACK 시점 단계 u8, ACK 시점 위험 점수 u16. 받아들여진 ACK마다 한 번 |
-| `0x05` | STATUS | 8 B: 가동 시간 u32, 여유 SRAM u16, `deadline_miss` u8(하위 바이트), 센서 오류 u8. `PING`에 대한 응답 |
-| `0x06` | PRESENCE | 사람 감지가 시작될 때 한 번 (TELEMETRY와 같은 레이아웃) |
+| `0x01` | TELEMETRY | Periodic summary (payload below) |
+| `0x02` | EVENT | Shock event (same layout as TELEMETRY, values at event time) |
+| `0x03` | ALERT | Level transition (same layout) |
+| `0x04` | ACK_LOG | 8 B: `t_s` u32, source u8 (0 = button, 1 = PC), level at ACK u8, risk at ACK u16. Sent once per accepted ACK |
+| `0x05` | STATUS | 8 B: uptime u32, free SRAM u16, `deadline_miss` u8 (low byte), sensor error u8. Reply to `PING` |
+| `0x06` | PRESENCE | Once when person detection starts (same layout as TELEMETRY) |
 
-TELEMETRY 페이로드 (24 B, little-endian):
+TELEMETRY payload (24 B, little-endian):
 
-| 오프셋 | 필드 | 형 | 설명 |
+| Offset | Field | Type | Description |
 |---|---|---|---|
-| 0 | `t_s` | u32 | 부팅 후 초 |
-| 4 | `state` | u8 | 0=MONITORING, 1=ALERT (MVP). 값 2~4는 확장 1의 STORAGE/TRANSIT/HANDLING용으로 예약 |
-| 5 | `level` | u8 | 0~3 |
-| 6 | `profile` | u8 | 0~2 |
-| 7 | `flags` | u8 | bit0 sat, bit1 open, bit2 pir(사람 감지 상태), bit3 air(예약, 미사용), bit4 ack_pending, bit5 sensor_fault |
-| 8 | `risk` | u16 | 0~999 |
-| 10 | `peak_mg` | u16 | 마지막 충격 피크 |
-| 12 | `dv_mms` | u16 | 마지막 ΔV |
-| 14 | `vib_rms_mg` | u16 | MVP는 항상 0. 확장 1에서 실제 값 채움 |
-| 16 | `tilt_x10` | i16 | 0.1° 단위 |
+| 0 | `t_s` | u32 | Seconds since boot |
+| 4 | `state` | u8 | 0 = MONITORING, 1 = ALERT (MVP). Values 2 to 4 are reserved for STORAGE/TRANSIT/HANDLING in Ext 1 |
+| 5 | `level` | u8 | 0 to 3 |
+| 6 | `profile` | u8 | 0 to 2 |
+| 7 | `flags` | u8 | bit0 sat, bit1 open, bit2 pir (person detected), bit3 air (reserved, unused), bit4 ack_pending, bit5 sensor_fault |
+| 8 | `risk` | u16 | 0 to 999 |
+| 10 | `peak_mg` | u16 | Last shock peak |
+| 12 | `dv_mms` | u16 | Last delta-V |
+| 14 | `vib_rms_mg` | u16 | Always 0 in the MVP. Filled in Ext 1 |
+| 16 | `tilt_x10` | i16 | Units of 0.1° |
 | 18 | `temp_x100` | i16 | DHT20, 0.01 °C |
 | 20 | `hum_x100` | u16 | |
 | 22 | `press_x10` | u16 | 0.1 hPa |
 
-MVP 기준으로도 위험 점수, 피크, 기울기, 온도, 상태, 경보 단계로 충분히 충족한다. 필드 자리를 미리 만들어 두어 확장 1이 프레임 형식을 바꾸지 않고 값만 채우게 했다.
+Even the MVP sends many distinct data points: risk score, peak, tilt, temperature, state and alert level. The unused fields are placeholders, so Ext 1 fills in values without changing the frame format.
 
-### 8.3 PC → 노드 명령
+### 8.3 PC to node commands
 
-| TYPE | 이름 | 인자 |
+| TYPE | Name | Arguments |
 |---|---|---|
-| `0x81` | ACK | 없음 |
-| `0x82` | SET_PROFILE | u8 프로파일 번호 |
-| `0x83` | SET_THRESH | u8 항목, u16 값 (**MVP 미구현**, 무시됨) |
-| `0x84` | PING | 없음 (STATUS로 응답) |
-| `0x85` | SET_INTERVAL | u8 MONITORING 보고 주기, 초 (1~60, 기본 60). 수신기가 시작할 때와 보드 재부팅을 감지했을 때 1 s를 요청 |
-| `0x86` | SIM_AIR | 예약 (항공 구간 삭제, 미사용) |
-| `0x87` | ARM | 없음. 새 배송 시작(발송 등록 QR 스캔의 에뮬레이션): 상자가 정지해 있다고 보고 기준 자세를 다시 잡고 위험 점수, 단계, 상태 머신을 초기화 |
+| `0x81` | ACK | None |
+| `0x82` | SET_PROFILE | u8 profile number |
+| `0x83` | SET_THRESH | u8 item, u16 value (**not implemented in the MVP**, ignored) |
+| `0x84` | PING | None (answered with STATUS) |
+| `0x85` | SET_INTERVAL | u8 MONITORING report period in seconds (1 to 60, default 60). The receiver requests 1 s at start and when it detects a board reboot |
+| `0x86` | SIM_AIR | Reserved (air segment removed, unused) |
+| `0x87` | ARM | None. Starts a new shipment (emulates scanning the dispatch QR code): treat the box as at rest, retake the reference pose, and reset risk score, level and state machine |
 
-- 노드는 텍스트 `h`도 받는다(상태 한 줄 출력, 디버그용). 프레임 수신 도중의 바이트는 텍스트로 해석하지 않는다.
+- The node also accepts the text command `h` (prints one status line, for debugging). Bytes that arrive in the middle of a frame are never read as text.
 
-### 8.4 PC 쪽: 수신기와 대시보드
+### 8.4 PC side: receiver and dashboard
 
-| 파일 | 아키텍처상 역할 | 하는 일 |
+| File | Role in the architecture | What it does |
 |---|---|---|
-| `pc/gateway.py` | 기사 폰 게이트웨이(fog) | 프레임 파싱과 CRC 검사, 화면 출력, `pc/data/run_*.csv` 저장(`latest.csv` 링크), 키보드 명령(`a` ACK, `p0/p1/p2` 프로파일, `i N` 보고 주기, `r` ARM, `s` 상태, `q` 종료). 종료 시 CRC 오류 수와 시퀀스 누락 수 출력. pyserial이 없으면 POSIX termios로 동작 |
-| `pc/dashboard.py` | 클라우드 + 응용 계층 | `latest.csv`를 1 s마다 다시 그림: 상태 줄(단계, ACK 여부, 환경, 기사 대응 시간, 충격 원인 집계), 위험 점수와 L1~L3 밴드, 충격 피크(취급 중 / 무인), 기울기와 프로파일 한계, 온도, 습도. `--static out.png`로 보고서용 정적 그림 생성 |
+| `pc/gateway.py` | Driver phone gateway (fog) | Parses frames and checks CRC, prints to screen, saves `pc/data/run_*.csv` (with a `latest.csv` link). Keyboard commands: `a` ACK, `p0/p1/p2` profile, `i N` report period, `r` ARM, `s` status, `q` quit. On exit it prints the CRC error count and the sequence gap count. Works without pyserial by using POSIX termios |
+| `pc/dashboard.py` | Cloud and application layer | Redraws `latest.csv` every second: status line (level, ACK state, environment, driver response time, shock cause counts), risk score with L1 to L3 bands, shock peaks (handled / unattended), tilt with profile limit, temperature, humidity. `--static out.png` makes a static figure for reports |
 
-실행: 터미널 1 `python3 pc/gateway.py`, 터미널 2 `python3 pc/dashboard.py`. 시리얼 포트를 열면 UNO가 재부팅되므로 수신기를 다시 켜면 보드도 다시 시작한다.
+Run: terminal 1 `python3 pc/gateway.py`, terminal 2 `python3 pc/dashboard.py`. Opening the serial port reboots the UNO, so restarting the receiver restarts the board.
 
-## 9. 메모리 예산 (SRAM)
+## 9. Memory budget (SRAM)
 
-| 항목 | 바이트 |
+| Item | Bytes |
 |---|---|
-| 프리트리거 링 버퍼 (16 × 6 B) | 96 |
-| 이벤트 로그 (8 × 12 B) | 96 |
-| 특징/누적 변수, 상태 머신 | 약 80 |
-| TX 프레임 버퍼 | 32 |
-| RX 프레임 버퍼 | 32 |
-| 합계 (애플리케이션) | 약 340 |
-| 여유 (스택 포함) | 약 850 |
+| Pre-trigger ring buffer (16 x 6 B) | 96 |
+| Event log (8 x 12 B) | 96 |
+| Feature/accumulator variables, state machine | about 80 |
+| TX frame buffer | 32 |
+| RX frame buffer | 32 |
+| Total (application) | about 340 |
+| Free (including stack) | about 850 |
 
-- **규칙**: 최악 경로에서도 여유 SRAM 400 B 이상. 상태 프레임에 여유 SRAM을 실어 실측한다.
-- MVP는 진동 RMS 누산기와 누적 손상 `D`가 없어 위 "특징/누적 변수" 실제 사용량은 표보다 작다. 여유는 안전 마진으로 남겨 둔다.
-- **실측 (초기, `arduino-cli compile`, UNO)**: `firmware/shipguard/shipguard.ino` 전체 기준 **Flash 20,736 B (64%), SRAM 1,013 B (49%), 여유 SRAM 1,035 B**. 목표(여유 400 B 이상)를 크게 넘는다. `--warnings all` 기준 자체 코드에서 경고 0개.
-- **실측 (실기 통합 후)**: 컴파일 기준 **Flash 21,986 B (68%), 정적 SRAM 1,092 B (53%), 남은 956 B**. 런타임 `STATUS` 프레임의 여유 SRAM은 887~914 B(스택 사용분 포함)로 목표 400 B를 넘는다. 자체 코드 경고 0개.
-- 문자열은 모두 `F()`(flash)로 두고, 프로파일 표는 `PROGMEM`에 둔다.
-- Flash 목표: 애플리케이션 약 10 KB (라이브러리 포함 약 17 KB).
+- **Rule:** at least 400 B of free SRAM even on the worst path. The status frame carries free SRAM so it is measured at runtime.
+- The MVP has no vibration accumulator and no `D`, so real usage of "feature/accumulator variables" is below the table value. The difference is kept as safety margin.
+- **Measured (early, `arduino-cli compile`, UNO):** whole `firmware/shipguard/shipguard.ino` uses **Flash 20,736 B (64%), SRAM 1,013 B (49%), free SRAM 1,035 B**. This is well above the target (400 B free or more). With `--warnings all`, there are 0 warnings in own code.
+- **Measured (after on-hardware integration):** compile result **Flash 21,986 B (68%), static SRAM 1,092 B (53%), 956 B left**. Free SRAM in the runtime `STATUS` frame is 887 to 914 B (including stack use), above the 400 B target. 0 warnings in own code.
+- All strings use `F()` (flash). The profile table is in `PROGMEM`.
+- Flash target: application about 10 KB (about 17 KB with libraries).
 
-## 10. 검증 계획과 지표
+## 10. Verification plan and metrics
 
-| 지표 | 목표 | 방법 |
+| Metric | Target | Method |
 |---|---|---|
-| 샘플 마감 유지 | `deadline_miss` = 0 (`HANDLING` 중 포함) | 카운터, 시나리오 반복 |
-| 충격 검출 지연 | 이벤트 시작에서 L2 표시까지 < 100 ms(로컬) | 시리얼 타임스탬프와 LED |
-| 낙하 시험 | 5/10/20 cm에서 GLASS L1/L2/L3 재현 | 패딩 위 낙하, 각 5회 |
-| 오탐 | 정상 취급(들고 옮기기) 20회 중 L2 이상 ≤ 1회 | 실험 |
-| 프레임 견고성 | 잡음 주입 시 CRC 오류 검출률 100%, 복구 후 계속 동작 | 호스트 테스트와 손실 주입 |
-| 메모리 | 여유 SRAM ≥ 400 B, Flash ≤ 20 KB | 컴파일 결과와 런타임 보고 |
-| 호스트 단위 테스트 | CRC, 프레임, 특징, 점수, 상태 머신, 히스테리시스, ACK 규칙, 기울기 경보 자동 해제 | `firmware/tests/test_core.cpp` **10개 통과**. CI는 확장 2 |
-| 프레임 링크 (실기) | 수신기 기준 CRC 오류 0, 시퀀스 누락 0 | 실측: 여러 차례 1~3분 실행에서 모두 0 |
+| Sample deadline | `deadline_miss` = 0 (also during `HANDLING`) | Counter, repeated scenarios |
+| Shock detection delay | Event start to L2 display under 100 ms (local) | Serial timestamps and LED |
+| Drop test | GLASS shows L1/L2/L3 at 5/10/20 cm | Drops onto padding, 5 times each |
+| False alarms | At most 1 L2-or-higher alert in 20 normal handling trials (pick up, carry) | Experiment |
+| Frame robustness | 100% CRC detection under injected noise, keeps running after recovery | Host tests and loss injection |
+| Memory | Free SRAM >= 400 B, Flash <= 20 KB | Compile result and runtime report |
+| Host unit tests | CRC, frame, features, score, state machine, hysteresis, ACK rules, tilt alert auto-clear | `firmware/tests/test_core.cpp`, **10 tests pass**. CI is Ext 2 |
+| Frame link (on hardware) | 0 CRC errors and 0 sequence gaps at the receiver | Measured: 0 in several 1 to 3 minute runs |
 
-## 11. 열린 문제와 위험
+## 11. Open issues and risks
 
-1. **프로파일 수치는 예시**이다. 완충재 상자 안에서의 실제 충격 크기는 낙하 실험 전에는 모른다. 맨 보드는 ±16g에서도 포화했다.
-2. 포화된 충격의 ΔV는 하한 추정이라 점수를 과소평가할 수 있다. 그래서 포화 시 자동으로 L3 처리한다.
-3. 가속도 INT 핀을 쓸 수 없어 저전력 웨이크업을 실제로 구현하지 못한다. 전력 모델은 데이터시트 기반 계산으로만 보이고 그 전제를 명시한다.
-4. BMP280과 DHT20의 온도 차이(1.4 °C) 원인은 미확정이다.
-5. 스마트폰 알림은 외부 서비스로 나가므로 사용자 승인이 필요하다.
-6. **범위를 MVP로 줄였다**. 진동 RMS, 누적 손상, 4단계 컨텍스트, 자동 에스컬레이션, 스마트폰 알림은 설계는 유지하되 현재 프로토타입에서는 구현하지 않았다(확장 1로 미룸).
-7. **OLED 7행이 실행 중에 안 보이던 문제**: 진단 화면으로 화면 자체는 0~7행 모두 보임을 확인했다. 프로파일 이름 줄을 16칸에 맞추고(`ELECTRONICS` + 공백이 16칸을 넘어 U8x8이 잘라 내지 않고 씀) 마지막 줄 길이를 맞춘 뒤 해결됐다. 둘 중 어느 쪽이 원인이었는지는 분리해 확인하지 않았다. 규칙: OLED 한 줄 출력은 항상 16칸 이하로 쓴다.
-8. **PIR 감지 거리**가 수 m라 "사람 없음" 상태를 만들기 어렵다. 시험은 PIR을 키트 아래에 숨겼다가 꺼내는 방식으로 한다(§7). 깜빡임은 유지 시간을 늘려 줄였다.
+1. **Profile values are examples.** The real shock size inside a padded box is unknown until the drop experiments. A bare board saturated even at ±16 g.
+2. The delta-V of a saturated shock is a lower bound, so the score may be too low. That is why a saturated event is treated as L3 automatically.
+3. The accelerometer interrupt pin is not available, so low-power wake-up cannot be built. The power model is a datasheet-based calculation, and its assumptions are stated.
+4. The cause of the 1.4 °C gap between BMP280 and DHT20 is not known.
+5. Smartphone alerts leave through an external service, so they need user approval.
+6. **Scope was reduced to the MVP.** Vibration RMS, cumulative damage, the 4-state context, automatic escalation and smartphone alerts stay in the design but are not implemented in the current prototype (deferred to Ext 1).
+7. **OLED row 7 was not visible while running.** A diagnostic screen showed that rows 0 to 7 are all visible. The problem went away after the profile-name line was fitted to 16 columns (`ELECTRONICS` plus padding exceeded 16 columns and U8x8 writes past the end instead of cutting) and the last line length was matched. Which of the two was the cause was not isolated. Rule: always write at most 16 characters per OLED line.
+8. **The PIR range is several meters,** so a "nobody present" state is hard to create. Tests hide the PIR under the kit and take it out when the driver checks (section 7). Flicker was reduced by increasing the hold time.

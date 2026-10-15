@@ -31,7 +31,7 @@ The prototype keeps a wired USB serial link. In the deployed design (a metropoli
 | `firmware/tests/` | Host unit tests for the core |
 | `firmware/smoke_test/` | Hardware bring-up sketch (I2C scan, sample rate, range, tilt, I/O) |
 | `pc/` | `gateway.py` (receiver and command console), `dashboard.py`, `analyze_experiment.py` |
-| `docs/design.md` | Design document (Korean): scoring formula, state machine, frame format, memory budget |
+| `docs/design.md` | Design document: scoring formula, state machine, frame format, memory budget |
 | `docs/report/`, `poster/` | Final report and poster |
 
 ## Build and run
